@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bank Statement System - Mobile Edition</title>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root { 
+            --blue-dark: #1e3a8a; 
+            --blue-light: #3b82f6;
+            --green-main: #10b981; 
+            --red-main: #ef4444;
+        }
+
+        body { 
+            font-family: 'Kanit', sans-serif; 
+            background-color: var(--blue-dark); 
+            margin: 0; 
+            padding: 10px; 
+            display: flex; 
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        /* Container หลักปรับให้ยืดหยุ่นตามหน้าจอมือถือ */
+        .container { 
+            background: white; 
+            width: 100%; 
+            max-width: 1150px; 
+            border-radius: 20px; 
+            padding: 15px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2); 
+            box-sizing: border-box;
+            margin-top: 10px;
+        }
+
+        /* ส่วนหัว */
+        .header-section { text-align: center; margin-bottom: 15px; }
+        .header-section h2 { color: var(--blue-dark); margin: 5px 0; font-size: 1.5rem; }
+        
+        /* กล่องยอดเงินคงเหลือ (เด่นชัดบนมือถือ) */
+        .balance-box { 
+            background: #f8fafc;
+            border: 2px solid var(--blue-dark); 
+            padding: 15px; 
+            border-radius: 15px; 
+            text-align: center; 
+            margin-bottom: 20px;
+        }
+
+        /* ฟอร์มกรอกข้อมูล ปรับช่อง Input ให้ใหญ่กดง่าย */
+        .form-card { border: 1px solid #e2e8f0; padding: 15px; border-radius: 15px; margin-bottom: 20px; background: #fff; }
+        .input-wrapper { display: flex; gap: 10px; flex-wrap: wrap; }
+        .input-wrapper input { 
+            flex: 1; 
+            min-width: 100%; /* บังคับแถวละ 1 ช่องบนมือถือ */
+            padding: 14px; 
+            border: 1px solid #cbd5e1; 
+            border-radius: 10px; 
+            font-family: 'Kanit'; 
+            font-size: 16px; /* ป้องกัน iOS ซูม */
+            box-sizing: border-box;
+        }
+
+        /* ปุ่มกดขนาดใหญ่ (Touch-friendly) */
+        .btn-submit { 
+            background: var(--green-main); 
+            color: white; 
+            border: none; 
+            padding: 16px; 
+            border-radius: 12px; 
+            width: 100%; 
+            font-size: 18px; 
+            font-weight: 600; 
+            cursor: pointer; 
+            margin-top: 10px;
+        }
+
+        /* ตารางแสดงผล (ปรับเป็น Card View เมื่อจอเล็ก) */
+        .table-container { width: 100%; overflow-x: auto; margin-top: 10px; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #f8fafc; color: var(--blue-dark); padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0; }
+        td { padding: 12px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
+
+        /* การจัดการปุ่มในตาราง */
+        .btn-view { background: #ecfdf5; color: #059669; border: 1px solid #d1fae5; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-family: 'Kanit'; }
+        .btn-edit { color: var(--blue-light); border: none; background: none; font-weight: 600; padding: 10px; }
+        .btn-del { color: var(--red-main); border: none; background: none; font-weight: 600; padding: 10px; }
+
+        /* Modal สำหรับดูรูปและปริ้น */
+        #modal { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.9); z-index: 1000; justify-content: center; align-items: center; flex-direction: column; }
+        #modalContent { width: 90%; overflow-y: auto; max-height: 80vh; display: flex; flex-direction: column; gap: 15px; align-items: center; }
+        #modalContent img { max-width: 100%; border-radius: 10px; border: 3px solid white; }
+
+        /* ปรับแต่งสำหรับมือถือ (Mobile UI) */
+        @media (max-width: 768px) {
+            body { padding: 5px; }
+            .container { border-radius: 15px; padding: 12px; }
+            
+            /* เปลี่ยนตารางเป็นรายการการ์ด */
+            table, thead, tbody, th, td, tr { display: block; }
+            thead { display: none; }
+            tr { margin-bottom: 15px; border: 1px solid #e2e8f0; border-radius: 15px; padding: 10px; background: #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+            td { text-align: right; padding: 10px; padding-left: 45%; position: relative; border-bottom: 1px solid #f8fafc; min-height: 30px; }
+            td::before { content: attr(data-label); position: absolute; left: 10px; font-weight: 600; color: #64748b; text-align: left; }
+            td:last-child { border-bottom: none; display: flex; justify-content: flex-end; gap: 10px; }
+            
+            .input-wrapper input { min-width: 100%; }
+        }
+
+        /* CSS สำหรับการพิมพ์ */
+        @media print {
+            body * { visibility: hidden; }
+            #modal, #modalContent, #modalContent img { visibility: visible; }
+            #modal { position: absolute; left: 0; top: 0; width: 100%; background: white; }
+            #modalContent img { page-break-after: always; max-width: 100%; border: none; }
+            .no-print { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="header-section">
+            <h2 id="compName">กำลังโหลด...</h2>
+            <p style="color: #64748b; font-size: 14px;">ระบบบันทึกรายการประจำปี </p>
+        </div>
+
+        <div class="balance-box">
+            <small style="color: #64748b; display: block; margin-bottom: 5px;">ยอดคงเหลือสุทธิ</small>
+            <strong style="font-size: 28px; color: var(--blue-dark);"><span id="totalBalance">0.00</span> ฿</strong>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+            <a href="dashboard.html" style="text-decoration: none; font-size: 14px; color: var(--blue-light);">← กลับหน้าหลัก</a>
+        </div>
+
+        <div class="form-card">
+            <strong id="formStatus" style="display: block; margin-bottom: 12px; color: var(--blue-dark);">+ เพิ่มรายการใหม่</strong>
+            <input type="hidden" id="editIdx" value="-1">
+            <div class="input-wrapper">
+                <input type="datetime-local" id="f_date">
+                <input type="text" id="f_detail" placeholder="รายละเอียดรายการ">
+                <input type="text" id="f_channel" placeholder="ช่องทาง (เช่น K-Bank, SCB)">
+                <input type="number" id="f_amount" placeholder="จำนวนเงิน (ติดลบคือรายจ่าย)">
+            </div>
+            
+            <div style="margin: 15px 0;">
+                <label style="font-size: 14px; color: #64748b;">แนบสลิป/หลักฐาน :</label>
+                <input type="file" id="f_file" accept="image/*" multiple style="margin-top:8px; width: 100%; font-family: 'Kanit';">
+            </div>
+
+            <button class="btn-submit" onclick="saveData()">บันทึกข้อมูล</button>
+            <button id="cancelBtn" onclick="resetForm()" style="display:none; width:100%; background:#94a3b8; color:white; border:none; padding:12px; margin-top:8px; border-radius:10px; cursor:pointer; font-family:'Kanit';">ยกเลิก</button>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>วันที่-เวลา</th>
+                        <th>รายการ</th>
+                        <th>ช่องทาง</th>
+                        <th>จำนวนเงิน</th>
+                        <th>ยอดคงเหลือ</th>
+                        <th>แนบเอกสาร</th>
+                        <th>จัดการ</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="modal">
+        <div id="modalContent"></div>
+        <div class="no-print" style="margin-top: 20px; display: flex; gap: 10px;">
+            <button onclick="window.print()" style="padding: 12px 20px; background: white; border-radius: 10px; border: none; font-family: 'Kanit'; font-weight: 600;">🖨️ ปริ้นเอกสาร</button>
+            <button onclick="closeModal()" style="padding: 12px 20px; background: var(--red-main); color: white; border-radius: 10px; border: none; font-family: 'Kanit';">ปิด</button>
+        </div>
+    </div>
+
+    <script>
+        const company = sessionStorage.getItem('selectedCompany') || "บริษัททดสอบ";
+        document.getElementById('compName').innerText = company;
+        const DB_NAME = `data_${company}`;
+
+        function getDB() { return JSON.parse(localStorage.getItem(DB_NAME) || "[]"); }
+
+        async function saveData() {
+            const idx = document.getElementById('editIdx').value;
+            const db = getDB();
+            const fileInput = document.getElementById('f_file');
+            const date = document.getElementById('f_date').value;
+            const detail = document.getElementById('f_detail').value;
+            const chan = document.getElementById('f_channel').value;
+            const amt = parseFloat(document.getElementById('f_amount').value || 0);
+
+            if(!date || !detail) { alert("กรุณาระบุวันที่และรายละเอียด"); return; }
+
+            // จัดการรูปภาพ
+            let imgList = (idx !== "-1") ? (db[idx].img || []) : [];
+            if (fileInput.files.length > 0) {
+                const newImgs = await Promise.all(Array.from(fileInput.files).map(file => {
+                    return new Promise(res => {
+                        const rd = new FileReader();
+                        rd.onload = () => res(rd.result);
+                        rd.readAsDataURL(file);
+                    });
+                }));
+                imgList = (idx === "-1") ? newImgs : [...imgList, ...newImgs];
+            }
+
+            const item = { date, detail, chan, amt, img: imgList };
+            if (idx === "-1") db.push(item); else db[idx] = item;
+            
+            db.sort((a, b) => new Date(a.date) - new Date(b.date));
+            localStorage.setItem(DB_NAME, JSON.stringify(db));
+            resetForm(); render();
+        }
+
+        function render() {
+            const data = getDB();
+            const body = document.getElementById('tableBody');
+            body.innerHTML = ""; let total = 0;
+
+            data.forEach((d, i) => {
+                total += d.amt;
+                const imgCount = d.img ? d.img.length : 0;
+                body.innerHTML += `
+                    <tr>
+                        <td data-label="วันที่-เวลา">${d.date.replace('T', ' ')}</td>
+                        <td data-label="รายการ">${d.detail}</td>
+                        <td data-label="ช่องทาง">${d.chan || '-'}</td>
+                        <td data-label="จำนวนเงิน" style="color:${d.amt >= 0 ? 'green':'red'}; font-weight:600">${d.amt.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                        <td data-label="ยอดคงเหลือ" style="font-weight:600">${total.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                        <td data-label="แนบเอกสาร">
+                            ${imgCount > 0 ? `<button onclick="view(${i})" class="btn-view">📂 ดูรูป (${imgCount})</button>` : '-'}
+                        </td>
+                        <td data-label="จัดการ">
+                            <button onclick="edit(${i})" class="btn-edit">แก้ไข</button>
+                            <button onclick="del(${i})" class="btn-del">ลบ</button>
+                        </td>
+                    </tr>`;
+            });
+            document.getElementById('totalBalance').innerText = total.toLocaleString(undefined, {minimumFractionDigits: 2});
+        }
+
+        function view(index) {
+            const d = getDB()[index];
+            const content = document.getElementById('modalContent');
+            content.innerHTML = (d.img || []).map(src => `<img src="${src}">`).join('');
+            document.getElementById('modal').style.display = 'flex';
+        }
+
+        function closeModal() { document.getElementById('modal').style.display = 'none'; }
+        
+        function edit(i) {
+            const d = getDB()[i];
+            document.getElementById('f_date').value = d.date;
+            document.getElementById('f_detail').value = d.detail;
+            document.getElementById('f_channel').value = d.chan;
+            document.getElementById('f_amount').value = d.amt;
+            document.getElementById('editIdx').value = i;
+            document.getElementById('formStatus').innerText = "📝 กำลังแก้ไขรายการ";
+            document.getElementById('cancelBtn').style.display = "block";
+            window.scrollTo({top: 0, behavior: 'smooth'});
+        }
+
+        function del(i) {
+            if(confirm("ลบรายการนี้ใช่หรือไม่?")) {
+                const db = getDB(); db.splice(i, 1);
+                localStorage.setItem(DB_NAME, JSON.stringify(db)); render();
+            }
+        }
+
+        function resetForm() {
+            document.getElementById('editIdx').value = "-1";
+            document.getElementById('formStatus').innerText = "+ เพิ่มรายการใหม่";
+            document.getElementById('cancelBtn').style.display = "none";
+            document.getElementById('f_date').value = "";
+            document.getElementById('f_detail').value = "";
+            document.getElementById('f_channel').value = "";
+            document.getElementById('f_amount').value = "";
+            document.getElementById('f_file').value = "";
+        }
+
+        window.onload = render;
+    </script>
+</body>
+</html>

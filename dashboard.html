@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>จัดการบริษัท - Bank Statement System</title>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root { --blue-dark: #1e3a8a; --blue-main: #3b82f6; --green-btn: #10b981; }
+        
+        body { 
+            font-family: 'Kanit', sans-serif; 
+            background: #f8fafc; 
+            margin: 0; 
+            display: flex; 
+            min-height: 100vh;
+        }
+
+        /* --- Desktop Style (Sidebar คงเดิม) --- */
+        .sidebar { 
+            width: 300px; 
+            background: var(--blue-dark); 
+            color: white; 
+            padding: 30px; 
+            box-sizing: border-box; 
+            position: fixed; 
+            height: 100vh;
+        }
+
+        .main-content { 
+            flex: 1; 
+            margin-left: 300px; 
+            padding: 40px; 
+            background: #f8fafc;
+            box-sizing: border-box;
+        }
+
+        /* Elements inside */
+        .sidebar h2 { font-size: 20px; margin-bottom: 30px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px; }
+        .logout-btn { background: #ef4444; color: white; border: none; padding: 12px; width: 100%; border-radius: 8px; cursor: pointer; margin-top: 20px; font-weight: 600; }
+        
+        .header-box { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        .action-bar { display: flex; gap: 15px; margin-bottom: 30px; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .search-input { flex: 1; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-family: 'Kanit'; font-size: 16px; }
+        .add-btn { background: var(--green-btn); color: white; border: none; padding: 0 25px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: 0.2s; }
+        .add-btn:hover { background: #059669; }
+
+        /* Company Cards */
+        .company-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+        .company-card { 
+            background: white; padding: 25px; border-radius: 15px; border: 1px solid #e2e8f0;
+            transition: 0.3s; cursor: pointer; position: relative; overflow: hidden;
+        }
+        .company-card:hover { border-color: var(--blue-main); transform: translateY(-5px); box-shadow: 0 10px 15px rgba(0,0,0,0.1); }
+        .company-card h3 { margin: 0 0 10px 0; color: var(--blue-dark); font-size: 18px; }
+        .company-card p { color: #64748b; font-size: 14px; margin: 5px 0; }
+        .go-icon { position: absolute; right: 20px; bottom: 20px; color: var(--blue-main); font-weight: bold; }
+
+        .delete-btn {
+            position: absolute; top: 15px; right: 15px; background: #fee2e2; color: #ef4444;
+            border: none; width: 32px; height: 32px; border-radius: 8px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; z-index: 10;
+        }
+
+        /* --- Mobile Responsive (ปรับตามรูปที่คุณแนบมา) --- */
+        @media (max-width: 768px) {
+            body { 
+                flex-direction: column; 
+                background: var(--blue-dark); /* พื้นหลังหลักเป็นสีน้ำเงินตาม Sidebar */
+            }
+
+            .sidebar { 
+                position: relative; 
+                width: 100%; 
+                height: auto; 
+                padding: 25px 20px; 
+                min-height: auto;
+            }
+
+            .main-content { 
+                margin-left: 0; 
+                width: 100%;
+                padding: 30px 20px; 
+                background: #f8fafc; 
+                border-radius: 30px 30px 0 0; /* ทำขอบโค้งมนด้านบนให้ดูเชื่อมต่อกับส่วนบน */
+                min-height: 70vh;
+                box-sizing: border-box;
+            }
+
+            .action-bar {
+                flex-direction: column;
+                gap: 12px;
+                padding: 15px;
+            }
+
+            .add-btn {
+                padding: 15px;
+                width: 100%;
+            }
+
+            .header-box {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 5px;
+            }
+
+            .header-box h1 { font-size: 22px; margin: 0; }
+            .company-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h2>🏦 Bank Statement System</h2>
+        <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 12px;">
+            <small style="opacity: 0.8;">ผู้ใช้งาน:</small><br>
+            <strong>Admin User</strong><br><br>
+            <small style="opacity: 0.8;">อุปกรณ์:</small><br>
+            <strong id="deviceShow">Mobile</strong>
+        </div>
+        <button class="logout-btn" onclick="location.href='index.html'">ออกจากระบบ</button>
+    </div>
+
+    <div class="main-content">
+        <div class="header-box">
+            <h1>ข้อมูลรายชื่อบริษัท</h1>
+            <div id="dateNow" style="color: #64748b; font-size: 14px;"></div>
+        </div>
+
+        <div class="action-bar">
+            <input type="text" id="searchInput" class="search-input" placeholder="ค้นหาชื่อบริษัท..." onkeyup="filterCompanies()">
+            <button class="add-btn" onclick="addNewCompany()">+ เพิ่มบริษัทใหม่</button>
+        </div>
+
+        <div id="companyGrid" class="company-grid">
+            </div>
+    </div>
+
+    <script>
+        // ข้อมูลบริษัท
+        let companies = JSON.parse(localStorage.getItem('companyList') || '["บริษัท แอนเดอร์สัน คอร์ปอเรชั่น จำกัด", "บริษัท ตัวอย่าง เทรดดิ้ง จำกัด"]');
+
+        function renderCompanies(list = companies) {
+            const grid = document.getElementById('companyGrid');
+            grid.innerHTML = "";
+            
+            list.forEach((comp, index) => {
+                grid.innerHTML += `
+                    <div class="company-card">
+                        <button class="delete-btn" onclick="deleteCompany(event, ${index})" title="ลบบริษัท">🗑️</button>
+                        <div onclick="selectCompany('${comp}')">
+                            <h3>${comp}</h3>
+                            <p>สถานะ: <span style="color:green; font-weight:600;">● เปิดใช้งาน</span></p>
+                            <p>ข้อมูลประจำปี: 2569</p>
+                            <div class="go-icon">จัดการข้อมูล →</div>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        function deleteCompany(event, index) {
+            event.stopPropagation();
+            const companyName = companies[index];
+            if (confirm(`คุณต้องการลบ "${companyName}" ใช่หรือไม่?`)) {
+                companies.splice(index, 1);
+                localStorage.setItem('companyList', JSON.stringify(companies));
+                renderCompanies();
+            }
+        }
+
+        function addNewCompany() {
+            const name = prompt("กรุณาระบุชื่อบริษัทใหม่:");
+            if (name && name.trim() !== "") {
+                companies.push(name.trim());
+                localStorage.setItem('companyList', JSON.stringify(companies));
+                renderCompanies();
+            }
+        }
+
+        function filterCompanies() {
+            const term = document.getElementById('searchInput').value.toLowerCase();
+            const filtered = companies.filter(c => c.toLowerCase().includes(term));
+            renderCompanies(filtered);
+        }
+
+        function selectCompany(name) {
+            sessionStorage.setItem('selectedCompany', name);
+            window.location.href = 'details.html';
+        }
+
+        // แสดงวันที่ปัจจุบัน
+        document.getElementById('dateNow').innerText = new Date().toLocaleDateString('th-TH', { 
+            year: 'numeric', month: 'long', day: 'numeric' 
+        });
+        document.getElementById('deviceShow').innerText = sessionStorage.getItem('deviceType') || "Mobile";
+
+        window.onload = renderCompanies;
+    </script>
+</body>
+</html>
