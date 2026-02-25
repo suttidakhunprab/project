@@ -109,158 +109,164 @@
     </div>
 
     <script>
-        // 1. ตั้งค่า Firebase
+    let database;
+    const selectedComp = sessionStorage.getItem('selectedCompany') || "บริษัททดสอบ";
+
+    function startSync() {
         const firebaseConfig = {
-            databaseURL: "https://bank-statement-system-default-rtdb.firebaseio.com/" 
-        };
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
+    databaseURL: "https://bank-statement-system-default-rtdb.asia-southeast1.firebasedatabase.app/" 
+};
+        if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
+        database = firebase.database();
+        document.getElementById('compName').innerText = selectedComp;
 
-        // 2. ชื่อบริษัท
-        const selectedComp = sessionStorage.getItem('selectedCompany') || "บริษัททดสอบ";
+        // ดึงข้อมูลมาแสดงผล
+        database.ref('bank_data/' + selectedComp).on('value', (snapshot) => {
+            const data = snapshot.val() || [];
+            render(data);
+        }, (err) => { console.error("Sync Error:", err); });
+    }
 
-        // 3. ฟังก์ชันเริ่มงาน (ทำงานทันทีที่โหลดหน้า)
-        function startSync() {
-            document.getElementById('compName').innerText = selectedComp;
+    // ฟังก์ชันย่อรูปให้จิ๋วที่สุด (เหลือแค่ 400px) เพื่อให้บันทึกผ่านแน่นอน
+    async function compressImage(file) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = (e) => {
+                const img = new Image();
+                img.src = e.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const MAX_WIDTH = 400; 
+                    let width = img.width;
+                    let height = img.height;
+                    if (width > MAX_WIDTH) {
+                        height *= MAX_WIDTH / width;
+                        width = MAX_WIDTH;
+                    }
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    resolve(canvas.toDataURL('image/jpeg', 0.5)); // คุณภาพ 50% ไฟล์จะเล็กมาก
+                };
+            };
+        });
+    }
 
-            // ตรวจสอบข้อมูลเก่าใน LocalStorage (ยอด 100,000 เดิม)
-            const oldData = localStorage.getItem('bankData_' + selectedComp);
-            if (oldData) {
-                document.getElementById('importSection').style.display = 'block';
-            }
+    async function saveData() {
+        const idx = document.getElementById('editIdx').value;
+        const date = document.getElementById('f_date').value;
+        const detail = document.getElementById('f_detail').value;
+        const chan = document.getElementById('f_channel').value;
+        const amt = parseFloat(document.getElementById('f_amount').value || 0);
+        const fileInput = document.getElementById('f_file');
 
-            // ซิงค์จาก Firebase แบบ Real-time
-            database.ref('bank_data/' + selectedComp).on('value', (snapshot) => {
-                const data = snapshot.val() || [];
-                render(data);
-            });
-        }
+        if (!date || !detail) { alert("⚠️ กรุณากรอกข้อมูลให้ครบ"); return; }
 
-        // 4. ฟังก์ชันย้ายข้อมูลเก่าขึ้นออนไลน์
-        async function importOldData() {
-            const oldData = localStorage.getItem('bankData_' + selectedComp);
-            if (!oldData) return;
+        try {
+            const btn = document.querySelector('.btn-submit');
+            btn.innerText = "⏳ กำลังส่งข้อมูล...";
+            btn.disabled = true;
 
-            if (confirm("ต้องการดึงข้อมูลเดิมในเครื่องนี้ขึ้นระบบออนไลน์ใช่หรือไม่? (ข้อมูลจะไปโชว์ในมือถือด้วย)")) {
-                try {
-                    const parsedData = JSON.parse(oldData);
-                    await database.ref('bank_data/' + selectedComp).set(parsedData);
-                    alert("✅ ดึงข้อมูลสำเร็จ!");
-                    localStorage.removeItem('bankData_' + selectedComp); // ลบจากเครื่องเพื่อไม่ให้ซ้ำ
-                    document.getElementById('importSection').style.display = 'none';
-                } catch (e) {
-                    alert("❌ เกิดข้อผิดพลาด: " + e.message);
-                }
-            }
-        }
-
-        // 5. บันทึกข้อมูล
-        async function saveData() {
-            const idx = document.getElementById('editIdx').value;
-            const date = document.getElementById('f_date').value;
-            const detail = document.getElementById('f_detail').value;
-            const chan = document.getElementById('f_channel').value;
-            const amt = parseFloat(document.getElementById('f_amount').value || 0);
-            const fileInput = document.getElementById('f_file');
-
-            if(!date || !detail) { alert("⚠️ กรุณากรอกวันที่และรายละเอียด"); return; }
-
-            try {
-                const snapshot = await database.ref('bank_data/' + selectedComp).once('value');
-                let db = snapshot.val() || [];
-
-                // จัดการรูปภาพ
-                let imgList = (idx !== "-1" && db[idx]) ? (db[idx].img || []) : [];
-                if (fileInput.files.length > 0) {
-                    const newImgs = await Promise.all(Array.from(fileInput.files).map(file => {
-                        return new Promise(res => {
-                            const rd = new FileReader();
-                            rd.onload = () => res(rd.result);
-                            rd.readAsDataURL(file);
-                        });
-                    }));
-                    imgList = (idx === "-1") ? newImgs : [...imgList, ...newImgs];
-                }
-
-                const item = { date, detail, chan, amt, img: imgList };
-                if (idx === "-1") { db.push(item); } else { db[idx] = item; }
-
-                await database.ref('bank_data/' + selectedComp).set(db);
-                alert("✅ บันทึกออนไลน์สำเร็จ!");
-                resetForm();
-            } catch (error) {
-                alert("❌ บันทึกไม่ได้: " + error.message);
-            }
-        }
-
-        // 6. แสดงผลในตาราง
-        function render(data) {
-            const body = document.getElementById('tableBody');
-            body.innerHTML = ""; 
-            let total = 0;
-            data.forEach((d, i) => {
-                total += d.amt;
-                body.innerHTML += `
-                    <tr>
-                        <td data-label="วันที่-เวลา">${d.date.replace('T', ' ')}</td>
-                        <td data-label="รายการ">${d.detail}</td>
-                        <td data-label="ช่องทาง">${d.chan || '-'}</td>
-                        <td data-label="จำนวนเงิน" style="color:${d.amt >= 0 ? 'green':'red'}">${d.amt.toLocaleString()}</td>
-                        <td data-label="ยอดคงเหลือ">${total.toLocaleString()}</td>
-                        <td data-label="แนบเอกสาร">${(d.img && d.img.length > 0) ? `<button onclick="view(${i})" class="btn-view">📂 ดูรูป (${d.img.length})</button>` : '-'}</td>
-                        <td data-label="จัดการ">
-                            <button onclick="edit(${i})" class="btn-edit">แก้ไข</button>
-                            <button onclick="del(${i})" class="btn-del">ลบ</button>
-                        </td>
-                    </tr>`;
-            });
-            document.getElementById('totalBalance').innerText = total.toLocaleString(undefined, {minimumFractionDigits: 2});
-        }
-
-        async function edit(i) {
             const snapshot = await database.ref('bank_data/' + selectedComp).once('value');
-            const d = snapshot.val()[i];
-            document.getElementById('f_date').value = d.date;
-            document.getElementById('f_detail').value = d.detail;
-            document.getElementById('f_channel').value = d.chan || "";
-            document.getElementById('f_amount').value = d.amt;
-            document.getElementById('editIdx').value = i;
-            document.getElementById('formStatus').innerText = "📝 กำลังแก้ไขข้อมูลออนไลน์";
-            document.getElementById('cancelBtn').style.display = "block";
-            window.scrollTo({top: 0, behavior: 'smooth'});
-        }
+            let db = snapshot.val() || [];
 
-        async function del(i) {
-            if(confirm("ยืนยันการลบรายการนี้ออกจากระบบออนไลน์?")) {
-                const snapshot = await database.ref('bank_data/' + selectedComp).once('value');
-                let db = snapshot.val() || [];
-                db.splice(i, 1);
-                await database.ref('bank_data/' + selectedComp).set(db);
+            let imgList = (idx !== "-1" && db[idx]) ? (db[idx].img || []) : [];
+            if (fileInput.files.length > 0) {
+                const newImgs = await Promise.all(Array.from(fileInput.files).map(file => compressImage(file)));
+                imgList = (idx === "-1") ? newImgs : [...imgList, ...newImgs];
             }
-        }
 
-        function resetForm() {
-            document.getElementById('editIdx').value = "-1";
-            document.getElementById('formStatus').innerText = "+ เพิ่มรายการใหม่";
-            document.getElementById('cancelBtn').style.display = "none";
-            document.getElementById('f_date').value = "";
-            document.getElementById('f_detail').value = "";
-            document.getElementById('f_channel').value = "";
-            document.getElementById('f_amount').value = "";
-            document.getElementById('f_file').value = "";
-        }
+            const item = { date, detail, chan, amt, img: imgList };
+            if (idx === "-1") { db.push(item); } else { db[idx] = item; }
 
-        async function view(index) {
+            // บันทึกลง Firebase
+            await database.ref('bank_data/' + selectedComp).set(db);
+            alert("✅ บันทึกสำเร็จแล้ว!");
+            resetForm();
+        } catch (error) {
+            alert("❌ บันทึกไม่ได้ (อาจเพราะรูปเยอะเกินไป): " + error.message);
+        } finally {
+            const btn = document.querySelector('.btn-submit');
+            btn.innerText = "บันทึกข้อมูลออนไลน์";
+            btn.disabled = false;
+        }
+    }
+
+    // ฟังก์ชันล้างข้อมูล (กรณีเครื่องค้างหรือฐานข้อมูลเต็ม)
+    async function clearAllData() {
+        if(confirm("‼️ คำเตือน: คุณต้องการลบข้อมูลทั้งหมดของบริษัทนี้ใช่หรือไม่?")) {
+            await database.ref('bank_data/' + selectedComp).remove();
+            alert("ล้างข้อมูลเรียบร้อย");
+        }
+    }
+
+    function render(data) {
+        const body = document.getElementById('tableBody');
+        body.innerHTML = ""; 
+        let total = 0;
+        data.forEach((d, i) => {
+            total += d.amt;
+            body.innerHTML += `
+                <tr>
+                    <td data-label="วันที่-เวลา">${d.date.replace('T', ' ')}</td>
+                    <td data-label="รายการ">${d.detail}</td>
+                    <td data-label="ช่องทาง">${d.chan || '-'}</td>
+                    <td data-label="จำนวนเงิน" style="color:${d.amt >= 0 ? 'green':'red'}">${d.amt.toLocaleString()}</td>
+                    <td data-label="ยอดคงเหลือ">${total.toLocaleString()}</td>
+                    <td data-label="แนบเอกสาร">${(d.img && d.img.length > 0) ? `<button onclick="view(${i})" class="btn-view">📂 ดูรูป (${d.img.length})</button>` : '-'}</td>
+                    <td data-label="จัดการ">
+                        <button onclick="edit(${i})" class="btn-edit">แก้ไข</button>
+                        <button onclick="del(${i})" class="btn-del">ลบ</button>
+                    </td>
+                </tr>`;
+        });
+        document.getElementById('totalBalance').innerText = total.toLocaleString(undefined, {minimumFractionDigits: 2});
+    }
+
+    async function edit(i) {
+        const snapshot = await database.ref('bank_data/' + selectedComp).once('value');
+        const d = snapshot.val()[i];
+        document.getElementById('f_date').value = d.date;
+        document.getElementById('f_detail').value = d.detail;
+        document.getElementById('f_channel').value = d.chan || "";
+        document.getElementById('f_amount').value = d.amt;
+        document.getElementById('editIdx').value = i;
+        document.getElementById('formStatus').innerText = "📝 กำลังแก้ไขข้อมูล";
+        document.getElementById('cancelBtn').style.display = "block";
+        window.scrollTo({top: 0, behavior: 'smooth'});
+    }
+
+    async function del(i) {
+        if(confirm("ลบรายการนี้?")) {
             const snapshot = await database.ref('bank_data/' + selectedComp).once('value');
-            const d = snapshot.val()[index];
-            document.getElementById('modalContent').innerHTML = (d.img || []).map(src => `<img src="${src}" style="width:100%; margin-bottom:10px;">`).join('');
-            document.getElementById('modal').style.display = 'flex';
+            let db = snapshot.val() || [];
+            db.splice(i, 1);
+            await database.ref('bank_data/' + selectedComp).set(db);
         }
+    }
 
-        function closeModal() { document.getElementById('modal').style.display = 'none'; }
+    function resetForm() {
+        document.getElementById('editIdx').value = "-1";
+        document.getElementById('formStatus').innerText = "+ เพิ่มรายการใหม่";
+        document.getElementById('cancelBtn').style.display = "none";
+        document.getElementById('f_date').value = "";
+        document.getElementById('f_detail').value = "";
+        document.getElementById('f_channel').value = "";
+        document.getElementById('f_amount').value = "";
+        document.getElementById('f_file').value = "";
+    }
 
-        // เริ่มต้นการซิงค์
-        window.onload = startSync;
-    </script>
+    async function view(index) {
+        const snapshot = await database.ref('bank_data/' + selectedComp).once('value');
+        const d = snapshot.val()[index];
+        document.getElementById('modalContent').innerHTML = (d.img || []).map(src => `<img src="${src}" style="width:100%; margin-bottom:10px;">`).join('');
+        document.getElementById('modal').style.display = 'flex';
+    }
+
+    function closeModal() { document.getElementById('modal').style.display = 'none'; }
+    window.onload = startSync;
+</script>
 </body>
 </html>
