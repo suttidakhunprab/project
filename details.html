@@ -15,7 +15,6 @@
         .header-section { text-align: center; margin-bottom: 15px; }
         .header-section h2 { color: var(--blue-dark); margin: 5px 0; font-size: 1.5rem; }
         
-        /* สไตล์ปุ่มย้อนกลับ */
         .nav-bar { width: 100%; display: flex; justify-content: flex-start; margin-bottom: 10px; }
         .btn-back { text-decoration: none; color: var(--blue-light); font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 5px; transition: 0.2s; }
         .btn-back:hover { color: var(--blue-dark); }
@@ -25,6 +24,8 @@
         .input-wrapper { display: flex; gap: 10px; flex-wrap: wrap; }
         .input-wrapper input { flex: 1; min-width: 100%; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; font-family: 'Kanit'; font-size: 16px; box-sizing: border-box; }
         .btn-submit { background: var(--green-main); color: white; border: none; padding: 16px; border-radius: 12px; width: 100%; font-size: 18px; font-weight: 600; cursor: pointer; margin-top: 10px; }
+        .btn-submit:disabled { background: #94a3b8; cursor: not-allowed; }
+
         .table-container { width: 100%; overflow-x: auto; margin-top: 10px; }
         table { width: 100%; border-collapse: collapse; }
         th { background: #f8fafc; color: var(--blue-dark); padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0; }
@@ -64,7 +65,7 @@
 
         <div class="header-section">
             <h2 id="compName">กำลังโหลดข้อมูล...</h2>
-            <p style="color: #64748b; font-size: 14px;">ระบบจัดการเอกสารความละเอียดสูง (Print Ready)</p>
+            <p style="color: #64748b; font-size: 14px;">ระบบจัดการเอกสารความเร็วสูง (Optimized Version)</p>
         </div>
 
         <div class="balance-box">
@@ -134,12 +135,14 @@
         database = firebase.database();
         document.getElementById('compName').innerText = selectedComp;
 
+        // ดึงข้อมูลแบบ Realtime
         database.ref('bank_data/' + selectedComp).on('value', (snapshot) => {
-            const data = snapshot.val() || [];
+            const data = snapshot.val();
             render(data);
         });
     }
 
+    // ปรับความละเอียดภาพลงเหลือ 1000px เพื่อความเร็ว (ยังพิมพ์ชัดอยู่)
     async function compressImage(file) {
         return new Promise((resolve) => {
             const reader = new FileReader();
@@ -149,7 +152,7 @@
                 img.src = e.target.result;
                 img.onload = () => {
                     const canvas = document.createElement('canvas');
-                    const MAX_WIDTH = 1200; 
+                    const MAX_WIDTH = 1000; 
                     let width = img.width;
                     let height = img.height;
                     if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
@@ -157,14 +160,14 @@
                     canvas.height = height;
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
-                    resolve(canvas.toDataURL('image/jpeg', 0.8)); 
+                    resolve(canvas.toDataURL('image/jpeg', 0.7)); // คุณภาพ 70% ช่วยให้ไฟล์เล็กลงมาก
                 };
             };
         });
     }
 
     async function saveData() {
-        const idx = document.getElementById('editIdx').value;
+        const key = document.getElementById('editIdx').value; // Key ของ Firebase
         const date = document.getElementById('f_date').value;
         const detail = document.getElementById('f_detail').value;
         const chan = document.getElementById('f_channel').value;
@@ -174,30 +177,46 @@
 
         if (!date || !detail) { alert("⚠️ กรุณากรอกข้อมูลให้ครบ"); return; }
 
-        try {
-            const btn = document.querySelector('.btn-submit');
-            btn.innerText = "⏳ กำลังบันทึก...";
-            btn.disabled = true;
+        const btn = document.querySelector('.btn-submit');
+        btn.innerText = "⏳ กำลังประมวลผลรูปภาพ...";
+        btn.disabled = true;
 
-            const snapshot = await database.ref('bank_data/' + selectedComp).once('value');
-            let db = snapshot.val() || [];
-            let imgList = (idx !== "-1" && db[idx]) ? (db[idx].img || []) : [];
+        try {
+            let imgList = [];
             
+            // ถ้าเป็นการแก้ไข ให้ดึงรูปเดิมมาตั้งต้นก่อน
+            if (key !== "-1") {
+                const snap = await database.ref(`bank_data/${selectedComp}/${key}`).once('value');
+                const currentData = snap.val();
+                if (currentData && currentData.img) imgList = currentData.img;
+            }
+
+            // จัดการรูปภาพใหม่
             if (fileInput.files.length > 0) {
+                btn.innerText = "⏳ กำลังบีบอัดและอัปโหลด...";
                 const newImgs = await Promise.all(Array.from(fileInput.files).map(file => compressImage(file)));
-                if (isReplace || idx === "-1") { imgList = newImgs; } else { imgList = [...imgList, ...newImgs]; }
+                if (isReplace || key === "-1") { 
+                    imgList = newImgs; 
+                } else { 
+                    imgList = [...imgList, ...newImgs]; 
+                }
             }
 
             const item = { date, detail, chan, amt, img: imgList };
-            if (idx === "-1") { db.push(item); } else { db[idx] = item; }
 
-            await database.ref('bank_data/' + selectedComp).set(db);
+            if (key === "-1") {
+                // ✅ ใช้ push() เพื่อเพิ่มรายการใหม่ (เร็วที่สุดเพราะไม่ต้องส่งข้อมูลเก่า)
+                await database.ref('bank_data/' + selectedComp).push(item);
+            } else {
+                // ✅ ใช้ update() หรือ set() เฉพาะ Path ของรายการนั้นๆ
+                await database.ref(`bank_data/${selectedComp}/${key}`).set(item);
+            }
+
             alert("✅ บันทึกสำเร็จ!");
             resetForm();
         } catch (error) {
             alert("❌ บันทึกไม่ได้: " + error.message);
         } finally {
-            const btn = document.querySelector('.btn-submit');
             btn.innerText = "บันทึกข้อมูลออนไลน์";
             btn.disabled = false;
         }
@@ -206,8 +225,17 @@
     function render(data) {
         const body = document.getElementById('tableBody');
         body.innerHTML = ""; 
+        if (!data) { 
+            document.getElementById('totalBalance').innerText = "0.00";
+            return; 
+        }
+
         let total = 0;
-        data.forEach((d, i) => {
+        // Firebase data อาจมาเป็น Object หรือ Array
+        const keys = Object.keys(data);
+        
+        keys.forEach((key) => {
+            const d = data[key];
             total += d.amt;
             body.innerHTML += `
                 <tr>
@@ -216,36 +244,36 @@
                     <td data-label="ช่องทาง">${d.chan || '-'}</td>
                     <td data-label="จำนวนเงิน" style="color:${d.amt >= 0 ? 'green':'red'}">${d.amt.toLocaleString()}</td>
                     <td data-label="ยอดคงเหลือ">${total.toLocaleString()}</td>
-                    <td data-label="แนบเอกสาร">${(d.img && d.img.length > 0) ? `<button onclick="view(${i})" class="btn-view">📂 พิมพ์รูป (${d.img.length})</button>` : '-'}</td>
+                    <td data-label="แนบเอกสาร">${(d.img && d.img.length > 0) ? `<button onclick="view('${key}')" class="btn-view">📂 พิมพ์รูป (${d.img.length})</button>` : '-'}</td>
                     <td data-label="จัดการ">
-                        <button onclick="edit(${i})" class="btn-edit">แก้ไข</button>
-                        <button onclick="del(${i})" class="btn-del">ลบ</button>
+                        <button onclick="edit('${key}')" class="btn-edit">แก้ไข</button>
+                        <button onclick="del('${key}')" class="btn-del">ลบ</button>
                     </td>
                 </tr>`;
         });
         document.getElementById('totalBalance').innerText = total.toLocaleString(undefined, {minimumFractionDigits: 2});
     }
 
-    async function edit(i) {
-        const snapshot = await database.ref('bank_data/' + selectedComp).once('value');
-        const d = snapshot.val()[i];
+    async function edit(key) {
+        const snapshot = await database.ref(`bank_data/${selectedComp}/${key}`).once('value');
+        const d = snapshot.val();
+        if(!d) return;
+
         document.getElementById('f_date').value = d.date;
         document.getElementById('f_detail').value = d.detail;
         document.getElementById('f_channel').value = d.chan || "";
         document.getElementById('f_amount').value = d.amt;
-        document.getElementById('editIdx').value = i;
+        document.getElementById('editIdx').value = key;
         document.getElementById('formStatus').innerText = "📝 แก้ไขรายการ & จัดการรูปภาพ";
         document.getElementById('cancelBtn').style.display = "block";
         document.getElementById('replaceSection').style.display = "block";
         window.scrollTo({top: 0, behavior: 'smooth'});
     }
 
-    async function del(i) {
+    async function del(key) {
         if(confirm("ลบรายการนี้?")) {
-            const snapshot = await database.ref('bank_data/' + selectedComp).once('value');
-            let db = snapshot.val() || [];
-            db.splice(i, 1);
-            await database.ref('bank_data/' + selectedComp).set(db);
+            // ✅ ลบเฉพาะ key นั้นๆ ไม่ต้องส่ง data ทั้งหมดกลับไป
+            await database.ref(`bank_data/${selectedComp}/${key}`).remove();
         }
     }
 
@@ -262,9 +290,11 @@
         document.getElementById('f_file').value = "";
     }
 
-    async function view(index) {
-        const snapshot = await database.ref('bank_data/' + selectedComp).once('value');
-        const d = snapshot.val()[index];
+    async function view(key) {
+        const snapshot = await database.ref(`bank_data/${selectedComp}/${key}`).once('value');
+        const d = snapshot.val();
+        if(!d) return;
+        
         const content = document.getElementById('modalContent');
         content.innerHTML = (d.img || []).map(src => `<img src="${src}">`).join('');
         document.getElementById('modal').style.display = 'flex';
