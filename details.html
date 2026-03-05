@@ -14,7 +14,13 @@
         .container { background: white; width: 100%; max-width: 1150px; border-radius: 20px; padding: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); box-sizing: border-box; margin-top: 10px; }
         .header-section { text-align: center; margin-bottom: 15px; }
         .header-section h2 { color: var(--blue-dark); margin: 5px 0; font-size: 1.5rem; }
-        .balance-box { background: #f8fafc; border: 2px solid var(--blue-dark); padding: 15px; border-radius: 15px; text-align: center; margin-bottom: 20px; }
+        
+        /* สไตล์ปุ่มย้อนกลับ */
+        .nav-bar { width: 100%; display: flex; justify-content: flex-start; margin-bottom: 10px; }
+        .btn-back { text-decoration: none; color: var(--blue-light); font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 5px; transition: 0.2s; }
+        .btn-back:hover { color: var(--blue-dark); }
+
+        .balance-box { background: #f8fafc; border: 2px solid var(--blue-dark); padding: 15px; border-radius: 15px; text-align: center; margin-bottom: 20px; position: relative; }
         .form-card { border: 1px solid #e2e8f0; padding: 15px; border-radius: 15px; margin-bottom: 20px; background: #fff; }
         .input-wrapper { display: flex; gap: 10px; flex-wrap: wrap; }
         .input-wrapper input { flex: 1; min-width: 100%; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; font-family: 'Kanit'; font-size: 16px; box-sizing: border-box; }
@@ -27,19 +33,17 @@
         .btn-edit { color: var(--blue-light); border: none; background: none; font-weight: 600; cursor: pointer; }
         .btn-del { color: var(--red-main); border: none; background: none; font-weight: 600; cursor: pointer; }
         
-        /* Modal for Viewing & Printing */
         #modal { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.9); z-index: 1000; justify-content: center; align-items: center; flex-direction: column; }
         #modalContent { width: 90%; overflow-y: auto; max-height: 85vh; display: flex; flex-direction: column; gap: 15px; align-items: center; background: white; padding: 20px; border-radius: 15px; }
         #modalContent img { width: 100%; max-width: 800px; height: auto; border: 1px solid #ddd; margin-bottom: 20px; }
 
-        /* Print Settings */
         @media print {
             body { background: white !important; padding: 0; margin: 0; }
             #modal { position: absolute; top: 0; left: 0; background: white; display: block !important; overflow: visible; }
-            #modal div:last-child { display: none !important; } /* Hide Print/Close buttons */
+            #modal div:last-child { display: none !important; }
             #modalContent { width: 100%; max-height: none; padding: 0; overflow: visible; box-shadow: none; border-radius: 0; }
             #modalContent img { width: 100%; max-width: none; page-break-after: always; border: none; }
-            .container, .header-section { display: none !important; }
+            .container, .header-section, .nav-bar { display: none !important; }
         }
 
         @media (max-width: 768px) {
@@ -54,6 +58,10 @@
 <body>
 
     <div class="container">
+        <div class="nav-bar">
+            <a href="dashboard.html" class="btn-back">🏠 กลับไปหน้าจัดการบริษัท</a>
+        </div>
+
         <div class="header-section">
             <h2 id="compName">กำลังโหลดข้อมูล...</h2>
             <p style="color: #64748b; font-size: 14px;">ระบบจัดการเอกสารความละเอียดสูง (Print Ready)</p>
@@ -132,7 +140,6 @@
         });
     }
 
-    // ปรับความคมชัด: เพิ่มขนาดเป็น 1200px และคุณภาพ 0.8
     async function compressImage(file) {
         return new Promise((resolve) => {
             const reader = new FileReader();
@@ -142,20 +149,15 @@
                 img.src = e.target.result;
                 img.onload = () => {
                     const canvas = document.createElement('canvas');
-                    const MAX_WIDTH = 1200; // เพิ่มความกว้างเพื่อความคมชัดในการพิมพ์
+                    const MAX_WIDTH = 1200; 
                     let width = img.width;
                     let height = img.height;
-                    
-                    if (width > MAX_WIDTH) {
-                        height *= MAX_WIDTH / width;
-                        width = MAX_WIDTH;
-                    }
-                    
+                    if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
                     canvas.width = width;
                     canvas.height = height;
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
-                    resolve(canvas.toDataURL('image/jpeg', 0.8)); // เพิ่มคุณภาพไฟล์ 80%
+                    resolve(canvas.toDataURL('image/jpeg', 0.8)); 
                 };
             };
         });
@@ -174,29 +176,23 @@
 
         try {
             const btn = document.querySelector('.btn-submit');
-            btn.innerText = "⏳ กำลังบันทึกข้อมูลแบบชัดสูง...";
+            btn.innerText = "⏳ กำลังบันทึก...";
             btn.disabled = true;
 
             const snapshot = await database.ref('bank_data/' + selectedComp).once('value');
             let db = snapshot.val() || [];
-
             let imgList = (idx !== "-1" && db[idx]) ? (db[idx].img || []) : [];
             
             if (fileInput.files.length > 0) {
                 const newImgs = await Promise.all(Array.from(fileInput.files).map(file => compressImage(file)));
-                // ถ้าติ๊ก Replace ให้ล้างรูปเดิม หรือถ้าเป็นรายการใหม่ให้ใช้รูปใหม่เลย
-                if (isReplace || idx === "-1") {
-                    imgList = newImgs;
-                } else {
-                    imgList = [...imgList, ...newImgs];
-                }
+                if (isReplace || idx === "-1") { imgList = newImgs; } else { imgList = [...imgList, ...newImgs]; }
             }
 
             const item = { date, detail, chan, amt, img: imgList };
             if (idx === "-1") { db.push(item); } else { db[idx] = item; }
 
             await database.ref('bank_data/' + selectedComp).set(db);
-            alert("✅ บันทึกสำเร็จเรียบร้อย!");
+            alert("✅ บันทึกสำเร็จ!");
             resetForm();
         } catch (error) {
             alert("❌ บันทึกไม่ได้: " + error.message);
@@ -240,7 +236,7 @@
         document.getElementById('editIdx').value = i;
         document.getElementById('formStatus').innerText = "📝 แก้ไขรายการ & จัดการรูปภาพ";
         document.getElementById('cancelBtn').style.display = "block";
-        document.getElementById('replaceSection').style.display = "block"; // แสดงช่อง Overwrite
+        document.getElementById('replaceSection').style.display = "block";
         window.scrollTo({top: 0, behavior: 'smooth'});
     }
 
