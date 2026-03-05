@@ -38,6 +38,9 @@
         #modalContent { width: 90%; overflow-y: auto; max-height: 85vh; display: flex; flex-direction: column; gap: 15px; align-items: center; background: white; padding: 20px; border-radius: 15px; }
         #modalContent img { width: 100%; max-width: 800px; height: auto; border: 1px solid #ddd; margin-bottom: 20px; }
 
+        /* Loading Spinner */
+        #loadingState { text-align: center; padding: 20px; color: var(--blue-dark); font-weight: 600; }
+
         @media print {
             body { background: white !important; padding: 0; margin: 0; }
             #modal { position: absolute; top: 0; left: 0; background: white; display: block !important; overflow: visible; }
@@ -64,8 +67,8 @@
         </div>
 
         <div class="header-section">
-            <h2 id="compName">กำลังโหลดข้อมูล...</h2>
-            <p style="color: #64748b; font-size: 14px;">ระบบจัดการเอกสารความเร็วสูง (Optimized Version)</p>
+            <h2 id="compName">กำลังเชื่อมต่อ...</h2>
+            <p style="color: #64748b; font-size: 14px;">ระบบจัดการเอกสารความเร็วสูง (Optimized Rendering)</p>
         </div>
 
         <div class="balance-box">
@@ -112,6 +115,7 @@
                 </thead>
                 <tbody id="tableBody"></tbody>
             </table>
+            <div id="loadingState">⏳ กำลังดึงข้อมูล...</div>
         </div>
     </div>
 
@@ -125,6 +129,7 @@
 
 <script>
     let database;
+    let currentTotalBalance = 0;
     const selectedComp = sessionStorage.getItem('selectedCompany') || "บริษัททดสอบ";
 
     function startSync() {
@@ -135,14 +140,82 @@
         database = firebase.database();
         document.getElementById('compName').innerText = selectedComp;
 
-        // ดึงข้อมูลแบบ Realtime
-        database.ref('bank_data/' + selectedComp).on('value', (snapshot) => {
+        const tableBody = document.getElementById('tableBody');
+        const loadingState = document.getElementById('loadingState');
+
+        // ล้างค่าเริ่มต้น
+        tableBody.innerHTML = "";
+        currentTotalBalance = 0;
+
+        // ดึงข้อมูลแบบ child_added: รายการไหนมาถึงก่อน วาดลงตารางทันที ไม่ต้องรอกัน
+        const dbRef = database.ref('bank_data/' + selectedComp);
+        
+        dbRef.on('child_added', (snapshot) => {
+            loadingState.style.display = 'none'; // ซ่อนสถานะโหลดเมื่อข้อมูลแรกมาถึง
             const data = snapshot.val();
-            render(data);
+            renderRow(snapshot.key, data);
+        });
+
+        // ตรวจสอบกรณีไม่มีข้อมูลเลย
+        dbRef.once('value', (snapshot) => {
+            if (!snapshot.exists()) {
+                loadingState.innerText = "❌ ไม่พบข้อมูลในระบบ";
+            }
+        });
+
+        // อัปเดตเมื่อมีการลบข้อมูล
+        dbRef.on('child_removed', (snapshot) => {
+            const row = document.getElementById(`row-${snapshot.key}`);
+            if (row) row.remove();
+            recalculateBalance(); // คำนวณยอดใหม่เมื่อมีการลบ
+        });
+
+        // อัปเดตเมื่อมีการแก้ไขข้อมูล
+        dbRef.on('child_changed', (snapshot) => {
+            const data = snapshot.val();
+            const oldRow = document.getElementById(`row-${snapshot.key}`);
+            if (oldRow) {
+                // เพื่อความง่ายและถูกต้อง แนะนำให้รีโหลดหน้าหรือวาดใหม่เฉพาะแถว
+                // แต่ในที่นี้จะใช้วิธีเปลี่ยนข้อมูลใน DOM โดยตรง หรือสั่งวาดใหม่ทั้งตารางถ้าข้อมูลซับซ้อน
+                location.reload(); 
+            }
         });
     }
 
-    // ปรับความละเอียดภาพลงเหลือ 1000px เพื่อความเร็ว (ยังพิมพ์ชัดอยู่)
+    // ฟังก์ชันวาดแถวทีละแถว (Stream Rendering)
+    function renderRow(key, d) {
+        const body = document.getElementById('tableBody');
+        currentTotalBalance += d.amt;
+
+        const rowHTML = `
+            <tr id="row-${key}">
+                <td data-label="วันที่-เวลา">${d.date.replace('T', ' ')}</td>
+                <td data-label="รายการ">${d.detail}</td>
+                <td data-label="ช่องทาง">${d.chan || '-'}</td>
+                <td data-label="จำนวนเงิน" style="color:${d.amt >= 0 ? 'green':'red'}">${d.amt.toLocaleString()}</td>
+                <td class="row-balance" data-label="ยอดคงเหลือ">${currentTotalBalance.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                <td data-label="แนบเอกสาร">${(d.img && d.img.length > 0) ? `<button onclick="view('${key}')" class="btn-view">📂 พิมพ์รูป (${d.img.length})</button>` : '-'}</td>
+                <td data-label="จัดการ">
+                    <button onclick="edit('${key}')" class="btn-edit">แก้ไข</button>
+                    <button onclick="del('${key}')" class="btn-del">ลบ</button>
+                </td>
+            </tr>`;
+        
+        body.insertAdjacentHTML('beforeend', rowHTML);
+        document.getElementById('totalBalance').innerText = currentTotalBalance.toLocaleString(undefined, {minimumFractionDigits: 2});
+    }
+
+    // ฟังก์ชันคำนวณยอดคงเหลือใหม่ (กรณีลบแถว)
+    function recalculateBalance() {
+        let tempTotal = 0;
+        const rows = document.querySelectorAll('#tableBody tr');
+        currentTotalBalance = 0;
+        
+        // ถ้าข้อมูลเยอะมาก วิธีที่ดีที่สุดคือดึงจาก Firebase ใหม่ 
+        // แต่เพื่อความเร็วจะใช้วิธี refresh หน้าแทนในส่วนของการลบ/แก้ไข
+        location.reload();
+    }
+
     async function compressImage(file) {
         return new Promise((resolve) => {
             const reader = new FileReader();
@@ -160,14 +233,14 @@
                     canvas.height = height;
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
-                    resolve(canvas.toDataURL('image/jpeg', 0.7)); // คุณภาพ 70% ช่วยให้ไฟล์เล็กลงมาก
+                    resolve(canvas.toDataURL('image/jpeg', 0.7)); 
                 };
             };
         });
     }
 
     async function saveData() {
-        const key = document.getElementById('editIdx').value; // Key ของ Firebase
+        const key = document.getElementById('editIdx').value;
         const date = document.getElementById('f_date').value;
         const detail = document.getElementById('f_detail').value;
         const chan = document.getElementById('f_channel').value;
@@ -178,80 +251,39 @@
         if (!date || !detail) { alert("⚠️ กรุณากรอกข้อมูลให้ครบ"); return; }
 
         const btn = document.querySelector('.btn-submit');
-        btn.innerText = "⏳ กำลังประมวลผลรูปภาพ...";
+        btn.innerText = "⏳ กำลังบันทึก...";
         btn.disabled = true;
 
         try {
             let imgList = [];
-            
-            // ถ้าเป็นการแก้ไข ให้ดึงรูปเดิมมาตั้งต้นก่อน
             if (key !== "-1") {
                 const snap = await database.ref(`bank_data/${selectedComp}/${key}`).once('value');
                 const currentData = snap.val();
                 if (currentData && currentData.img) imgList = currentData.img;
             }
 
-            // จัดการรูปภาพใหม่
             if (fileInput.files.length > 0) {
-                btn.innerText = "⏳ กำลังบีบอัดและอัปโหลด...";
                 const newImgs = await Promise.all(Array.from(fileInput.files).map(file => compressImage(file)));
-                if (isReplace || key === "-1") { 
-                    imgList = newImgs; 
-                } else { 
-                    imgList = [...imgList, ...newImgs]; 
-                }
+                imgList = (isReplace || key === "-1") ? newImgs : [...imgList, ...newImgs];
             }
 
             const item = { date, detail, chan, amt, img: imgList };
 
             if (key === "-1") {
-                // ✅ ใช้ push() เพื่อเพิ่มรายการใหม่ (เร็วที่สุดเพราะไม่ต้องส่งข้อมูลเก่า)
                 await database.ref('bank_data/' + selectedComp).push(item);
             } else {
-                // ✅ ใช้ update() หรือ set() เฉพาะ Path ของรายการนั้นๆ
                 await database.ref(`bank_data/${selectedComp}/${key}`).set(item);
             }
 
             alert("✅ บันทึกสำเร็จ!");
             resetForm();
+            if(key !== "-1") location.reload(); // รีโหลดเฉพาะกรณีแก้ไขเพื่อให้ยอดเงินเรียงถูกต้อง
         } catch (error) {
             alert("❌ บันทึกไม่ได้: " + error.message);
         } finally {
             btn.innerText = "บันทึกข้อมูลออนไลน์";
             btn.disabled = false;
         }
-    }
-
-    function render(data) {
-        const body = document.getElementById('tableBody');
-        body.innerHTML = ""; 
-        if (!data) { 
-            document.getElementById('totalBalance').innerText = "0.00";
-            return; 
-        }
-
-        let total = 0;
-        // Firebase data อาจมาเป็น Object หรือ Array
-        const keys = Object.keys(data);
-        
-        keys.forEach((key) => {
-            const d = data[key];
-            total += d.amt;
-            body.innerHTML += `
-                <tr>
-                    <td data-label="วันที่-เวลา">${d.date.replace('T', ' ')}</td>
-                    <td data-label="รายการ">${d.detail}</td>
-                    <td data-label="ช่องทาง">${d.chan || '-'}</td>
-                    <td data-label="จำนวนเงิน" style="color:${d.amt >= 0 ? 'green':'red'}">${d.amt.toLocaleString()}</td>
-                    <td data-label="ยอดคงเหลือ">${total.toLocaleString()}</td>
-                    <td data-label="แนบเอกสาร">${(d.img && d.img.length > 0) ? `<button onclick="view('${key}')" class="btn-view">📂 พิมพ์รูป (${d.img.length})</button>` : '-'}</td>
-                    <td data-label="จัดการ">
-                        <button onclick="edit('${key}')" class="btn-edit">แก้ไข</button>
-                        <button onclick="del('${key}')" class="btn-del">ลบ</button>
-                    </td>
-                </tr>`;
-        });
-        document.getElementById('totalBalance').innerText = total.toLocaleString(undefined, {minimumFractionDigits: 2});
     }
 
     async function edit(key) {
@@ -272,7 +304,6 @@
 
     async function del(key) {
         if(confirm("ลบรายการนี้?")) {
-            // ✅ ลบเฉพาะ key นั้นๆ ไม่ต้องส่ง data ทั้งหมดกลับไป
             await database.ref(`bank_data/${selectedComp}/${key}`).remove();
         }
     }
